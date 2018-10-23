@@ -99,7 +99,7 @@ def run(debug, check, game):
         if(
                 os.path.isdir(subdir) and 
                 (os.path.basename(subdir) == game or check)):
-            if 'Unsorted' == str(os.path.basename(subdir)):
+            if str(os.path.basename(subdir)) in ['Unsorted', 'Default']:
                 continue
 
             gamefiles = glob.glob(os.path.join(subdir, '*'))
