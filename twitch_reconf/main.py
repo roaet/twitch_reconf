@@ -40,6 +40,7 @@ class GameConfigurer(object):
     def load_directory_info(self):
         self.target = self.conf.get('TWRECONF', {}).get('target')
         self.source = self.conf.get('TWRECONF', {}).get('source')
+        self.default = os.path.join(self.source, 'Default')
         self.check_target_source_sanity(self.target, self.source)
 
         self.dir_map = self.conf.get('TWRECONF', {}).get('dir')
@@ -109,8 +110,9 @@ class GameConfigurer(object):
         self.initialize()
         files = self.get_games_in_source(self.source)
         for subdir in files:
+            bname = os.path.basename(subdir)
             if(
-                os.path.basename(subdir) in ['Unsorted', 'Default'] or
+                bname in ['Unsorted', 'Default'] or
                 not os.path.isdir(subdir)):
                 continue
             hasdir = False
@@ -126,52 +128,65 @@ class GameConfigurer(object):
                             haskey[k] = True
 
             if hasdir is False:
-                LOG.warning("%s is missing something a subdir" % subdir)
+                LOG.warning("%s is missing something a subdir" % bname)
             for k, v in self.mapping.iteritems():
                 if haskey[k] is False:
                     LOG.warning("%s is missing key %s => %s" % (
-                        subdir, k, v))
+                        bname, k, v))
 
-    def run(self, game):
-        self.initialize()
-
+    def copy_files(self, found_dir):
         template = self.load_template(self.slideshow_html_src)
         logo_template = self.load_template(self.logo_html_src)
         video_template = self.load_template(self.video_html_src)
 
+        gamefiles = glob.glob(os.path.join(found_dir, '*'))
+        for gfile in gamefiles:  # game specific folder
+            if os.path.isdir(gfile):  # slide files
+                slide_dir = os.path.basename(gfile)
+                # Copy entire slideshow source files
+                shutil.copytree(
+                    self.slideshow_dir_src,
+                    os.path.join(self.target, self.dir_map))
+                images = glob.glob(os.path.join(gfile, '*'))
+                # Copy all sideshow images
+                for img in images:
+                    shutil.copy(img, os.path.join(
+                        self.target, self.dir_map))
+                # Render slideshow html
+                images = [os.path.basename(i) for i in images]
+                self.write_template(
+                    self.slideshow_html_file, template, {'images': images})
+                continue
+            # files immediately in game folder
+            for k, v in self.mapping.iteritems():
+                if gfile.endswith(k):
+                    shutil.copy(gfile, os.path.join(self.target, v))
+            self.write_template(self.logo_html_file, logo_template)
+            self.write_template(self.video_html_file, video_template)
+
+    def run(self, game):
+        self.initialize()
+
         self.clear_target_dir(self.target)
         files = self.get_games_in_source(self.source)
+        found_dir = None
         for subdir in files:
+            bname = os.path.basename(subdir)
             if(
-                os.path.basename(subdir) in ['Unsorted', 'Default'] or
+                bname in ['Unsorted', 'Default'] or
                 not os.path.isdir(subdir) or
-                not os.path.basename(subdir) == game):
+                not bname.lower() == game.lower()):
                 continue
-            gamefiles = glob.glob(os.path.join(subdir, '*'))
-            for gfile in gamefiles:  # game specific folder
-                if os.path.isdir(gfile):  # slide files
-                    slide_dir = os.path.basename(gfile)
-                    # Copy entire slideshow source files
-                    shutil.copytree(
-                        self.slideshow_dir_src,
-                        os.path.join(self.target, self.dir_map))
-                    images = glob.glob(os.path.join(gfile, '*'))
-                    # Copy all sideshow images
-                    for img in images:
-                        shutil.copy(img, os.path.join(
-                            self.target, self.dir_map))
-                    # Render slideshow html
-                    images = [os.path.basename(i) for i in images]
-                    self.write_template(
-                        self.slideshow_html_file, template, {'images': images})
-                    continue
-                # files immediately in game folder
-                for k, v in self.mapping.iteritems():
-                    if gfile.endswith(k):
-                        shutil.copy(gfile, os.path.join(self.target, v))
-                self.write_template(self.logo_html_file, logo_template)
-                self.write_template(self.video_html_file, video_template)
-            break
+            elif(os.path.isdir(subdir) and bname.lower() == game.lower()):
+                found_dir = subdir
+                break
+
+        if found_dir is None:
+            print "Unknown game %s" % game
+            exit(1)
+        self.copy_files(self.default)
+        self.copy_files(found_dir)  # overwrites the default files
+        print 'Configured %s' % bname
 
 
 @click.command(context_settings={'ignore_unknown_options': True})
