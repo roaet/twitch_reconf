@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import sys
+import time
 
 import jinja2 as j2
 
@@ -72,8 +73,11 @@ class GameConfigurer(object):
                 shutil.rmtree(delf)
                 LOG.debug('Removed %s' % str(delf))
             else:
-                os.remove(delf)
-                LOG.debug('Removed %s' % str(delf))
+                try:
+                    os.remove(delf)
+                    LOG.debug('Removed %s' % str(delf))
+                except OSError:
+                    LOG.warning("Attempted to remove %s but failed." % delf)
 
     def load_extension_mappings(self):
         LOG.debug('Extension Mappings:')
@@ -111,7 +115,8 @@ class GameConfigurer(object):
     def run_list(self):
         self.initialize()
         files = self.get_games_in_source(self.source)
-        game_list = [os.path.basename(f) for f in files]
+        game_list = [
+            os.path.basename(f) for f in files if os.path.isdir(f)]
         print ', '.join(game_list)
 
     def run_check(self):
@@ -142,6 +147,16 @@ class GameConfigurer(object):
                     LOG.warning("%s is missing key %s => %s" % (
                         bname, k, v))
 
+    def refresh_scene(self):
+        self.cobs.connect()
+        reconf_scene = self.conf.get('WEBSOCKET', {}).get(
+            'reconfiguring_scene')
+        target_scene = self.conf.get('WEBSOCKET', {}).get('target_scene')
+        self.cobs.set_scene(reconf_scene)
+        time.sleep(5)
+        self.cobs.set_scene(target_scene)
+        self.cobs.disconnect()
+
     def copy_files(self, found_dir):
         template = self.load_template(self.slideshow_html_src)
         logo_template = self.load_template(self.logo_html_src)
@@ -149,8 +164,9 @@ class GameConfigurer(object):
 
         gamefiles = glob.glob(os.path.join(found_dir, '*'))
         for gfile in gamefiles:  # game specific folder
+            bname = os.path.basename(gfile)
             if os.path.isdir(gfile):  # slide files
-                slide_dir = os.path.basename(gfile)
+                slide_dir = bname
                 # Copy entire slideshow source files
                 shutil.copytree(
                     self.slideshow_dir_src,
@@ -168,11 +184,16 @@ class GameConfigurer(object):
                 continue
             # files immediately in game folder
             for k, v in self.mapping.iteritems():
-                if gfile.endswith(k):
+                if k == 'webm' and gfile.endswith(k):
+                    vfile = os.path.join(self.target, bname)
+                    shutil.copy(gfile, vfile)
+                    LOG.debug("Copying %s as %s => %s" % (gfile, k, vfile))
+                    self.write_template(
+                        self.video_html_file, video_template, {'video': bname})
+                elif gfile.endswith(k):
                     shutil.copy(gfile, os.path.join(self.target, v))
                     LOG.debug("Copying %s as %s => %s" % (gfile, k, v))
             self.write_template(self.logo_html_file, logo_template)
-            self.write_template(self.video_html_file, video_template)
 
     def run(self, game):
         self.initialize()
@@ -196,4 +217,5 @@ class GameConfigurer(object):
 
         self.copy_files(self.default)
         self.copy_files(found_dir)  # overwrites the default files
+        self.refresh_scene()
         print 'Configured %s' % bname

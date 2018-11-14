@@ -19,3 +19,6 @@ class ConfigurerOBSWebSocket(object):
 
     def get_version(self):
         return self.client.call(R.GetVersion()).getObsWebsocketVersion()
+
+    def set_scene(self, scene_name):
+        return self.client.call(R.SetCurrentScene(scene_name))
